@@ -25,6 +25,11 @@ from visualization import (
     create_purpose_risk_analysis,
     create_correlation_heatmap,
     create_default_distribution_by_feature,
+    create_age_credit_interaction,
+    create_debt_stress_analysis,
+    create_education_employment_analysis,
+    create_living_standard_analysis,
+    create_employment_tenure_occupation_analysis
 )
 from question_analytics import (
     show_overview,
@@ -96,7 +101,8 @@ def main():
             "👤 Demographics",
             "💰 Financial Analysis",
             "🏦 Loan Structure",
-            "📈 Advanced Analytics",
+            "📊 Employment and Education",
+            "📈 Correlation Analytics",
             "❓ Q&A Analysis",
         ]
     )
@@ -265,6 +271,17 @@ def main():
                 st.subheader("Gender Analysis")
                 st.dataframe(gender_stats, use_container_width=True)
 
+        st.subheader("📊 Age vs Credit Burden Interaction")
+
+        age_credit_fig = create_age_credit_interaction(df)
+        st.plotly_chart(
+            age_credit_fig,
+            use_container_width=True,
+            key="age_credit_interaction_tab"
+        )
+
+        st.divider()
+
     # TAB 4: Financial Analysis
     with tabs[3]:
         st.header("💰 Financial Analysis")
@@ -333,16 +350,92 @@ def main():
                 purpose_chart, use_container_width=True, key="loan_purpose_risk"
             )
 
+
+    # TAB 6: Engineered Risk Insights
+    with tabs[5]:
+        st.header("🧠 Employment and Education Insights")
+
+        st.caption(
+            "Feature-engineered analyses combining socio-economic, "
+            "financial stress, and employment stability indicators to uncover "
+            "hidden default risk patterns."
+        )
+
+        # -------------------------------------------------------
+        # 1. Living Standards Analysis
+        # -------------------------------------------------------
+        st.subheader("🏠 Living Standards & Financial Stress")
+
+        living_fig = create_living_standard_analysis(df)
+        st.plotly_chart(
+            living_fig,
+            use_container_width=True,
+            key="living_standard_tab"
+        )
+
+        st.divider()
+
+        # -------------------------------------------------------
+        # 2. Education + Employment Stability
+        # -------------------------------------------------------
+        st.subheader("🎓 Education & Employment Stability")
+
+        edu_emp_fig = create_education_employment_analysis(df)
+        st.plotly_chart(
+            edu_emp_fig,
+            use_container_width=True,
+            key="education_employment_tab"
+        )
+
+        st.divider()
+
+        # -------------------------------------------------------
+        # 3. Debt Stress Index
+        # -------------------------------------------------------
+        st.subheader("💸 Debt Stress Index")
+
+        st.caption(
+            "Debt stress measures how much of a customer's income is consumed "
+            "by loan obligations. Higher stress indicates lower financial resilience."
+        )
+
+        debt_stress_fig = create_debt_stress_analysis(df)
+        st.plotly_chart(
+            debt_stress_fig,
+            use_container_width=True,
+            key="debt_stress_tab"
+        )
+
+        st.divider()
+
         if "OCCUPATION_TYPE" in df.columns:
             st.subheader("Occupation Analysis")
             occ_chart = create_occupation_analysis(df)
             st.plotly_chart(
                 occ_chart, use_container_width=True, key="occupation_analysis"
             )
+        
+        # -------------------------------------------------------
+        # 5. Employment Tenure × Occupation
+        # -------------------------------------------------------
+        st.subheader("🧑‍💼 Employment Tenure & Occupation Risk")
 
-    # TAB 6: Advanced Analytics
-    with tabs[5]:
-        st.header("📈 Advanced Statistical Analysis")
+        st.caption(
+            "Analyzes how employment duration interacts with occupation type "
+            "to influence default risk and income stability."
+        )
+
+        tenure_occ_fig = create_employment_tenure_occupation_analysis(df)
+        st.plotly_chart(
+            tenure_occ_fig,
+            use_container_width=True,
+            key="tenure_occupation_tab"
+        )
+
+
+    # TAB 7: Advanced Analytics
+    with tabs[6]:
+        st.header("📈 Correlation Statistics")
 
         col1, col2 = st.columns(2)
 
@@ -413,8 +506,8 @@ def main():
                 dist_chart, use_container_width=True, key=f"dist_chart_{feature_select}"
             )
 
-    # TAB 7: Q&A Analysis
-    with tabs[6]:
+    # TAB 8: Q&A Analysis
+    with tabs[7]:
         st.header("❓ Detailed Q&A Analysis")
 
         if not qa_data_available:

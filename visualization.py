@@ -564,3 +564,376 @@ def create_default_distribution_by_feature(df, feature):
     )
     
     return fig
+
+@st.cache_resource(show_spinner=False)
+def create_age_credit_interaction(df):
+    """
+    Age x Credit burden interaction heatmap
+    """
+    required_cols = [
+        'AGE',
+        'CREDIT_INCOME_RATIO',
+        'TARGET'
+    ]
+    
+    if not all(col in df.columns for col in required_cols):
+        return go.Figure()
+
+    df_copy = df.copy()
+
+    df_copy['AGE_BIN'] = pd.cut(
+        df_copy['AGE'],
+        bins=[20, 30, 40, 50, 60, 70],
+        labels=['20-29', '30-39', '40-49', '50-59', '60+']
+    )
+
+    df_copy['CIR_BIN'] = pd.qcut(
+        df_copy['CREDIT_INCOME_RATIO'],
+        q=5,
+        labels=['Very Low', 'Low', 'Medium', 'High', 'Very High']
+    )
+
+    pivot = df_copy.pivot_table(
+        values='TARGET',
+        index='AGE_BIN',
+        columns='CIR_BIN',
+        aggfunc='mean'
+    )
+
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=pivot.values,
+            x=pivot.columns,
+            y=pivot.index,
+            colorscale='RdYlGn_r',
+            text=pivot.values,
+            texttemplate='%{text:.2f}',
+            hovertemplate='Age: %{y}<br>Credit Stress: %{x}<br>Default Rate: %{z:.2f}<extra></extra>'
+        )
+    )
+
+    fig.update_layout(
+        title='Default Rate Heatmap: Age vs Credit Stress',
+        height=500,
+        template='plotly_white'
+    )
+
+    return fig
+
+@st.cache_resource(show_spinner=False)
+def create_debt_stress_analysis(df):
+    """
+    Debt Stress Index vs default probability
+    """
+    required_cols = [
+        'AMT_CREDIT',
+        'AMT_ANNUITY',
+        'AMT_INCOME_TOTAL',
+        'TARGET'
+    ]
+    
+    if not all(col in df.columns for col in required_cols):
+        return go.Figure()
+
+    df_copy = df.copy()
+
+    df_copy['DEBT_STRESS_INDEX'] = (
+        df_copy['AMT_ANNUITY'] / df_copy['AMT_INCOME_TOTAL']
+    )
+
+    df_copy['STRESS_BIN'] = pd.qcut(
+        df_copy['DEBT_STRESS_INDEX'],
+        q=5,
+        labels=['Very Low', 'Low', 'Medium', 'High', 'Very High']
+    )
+
+    stats = df_copy.groupby('STRESS_BIN').agg(
+        default_rate=('TARGET', 'mean'),
+        total=('TARGET', 'count')
+    ).reset_index()
+
+    fig = px.bar(
+        stats,
+        x='STRESS_BIN',
+        y='default_rate',
+        color='default_rate',
+        color_continuous_scale='Reds',
+        title='Default Rate by Debt Stress Index',
+        text=stats['default_rate'].apply(lambda x: f"{x:.1%}")
+    )
+
+    fig.update_layout(
+        height=450,
+        coloraxis_showscale=False,
+        template='plotly_white'
+    )
+
+    return fig
+
+@st.cache_resource(show_spinner=False)
+def create_education_employment_analysis(df):
+    """
+    Improved: Education + empirically-derived employment stability
+    vs credit/income & default rate
+    """
+    required_cols = [
+        'NAME_EDUCATION_TYPE',
+        'NAME_INCOME_TYPE',
+        'CREDIT_INCOME_RATIO',
+        'AMT_INCOME_TOTAL',
+        'TARGET'
+    ]
+    
+    if not all(col in df.columns for col in required_cols):
+        return go.Figure()
+
+    df_copy = df.copy()
+
+  
+    education_map = {
+        'Lower secondary': 1,
+        'Secondary / secondary special': 2,
+        'Incomplete higher': 3,
+        'Higher education': 4,
+        'Academic degree': 5
+    }
+
+    df_copy['EDU_SCORE'] = (
+        df_copy['NAME_EDUCATION_TYPE']
+        .map(education_map)
+        .fillna(1)
+    )
+
+    emp_stats = df_copy.groupby('NAME_INCOME_TYPE').agg(
+        total=('TARGET', 'count'),
+        default_rate=('TARGET', 'mean'),
+        income_std=('AMT_INCOME_TOTAL', 'std')
+    ).reset_index()
+
+    # Keep only meaningful groups
+    emp_stats = emp_stats[emp_stats['total'] > 1000]
+
+    # Reference medians
+    median_default = emp_stats['default_rate'].median()
+    median_income_std = emp_stats['income_std'].median()
+
+    # Stability scoring (0–2)
+    emp_stats['EMP_STABILITY_SCORE'] = 0
+    emp_stats.loc[
+        emp_stats['default_rate'] <= median_default,
+        'EMP_STABILITY_SCORE'
+    ] += 1
+
+    emp_stats.loc[
+        emp_stats['income_std'] <= median_income_std,
+        'EMP_STABILITY_SCORE'
+    ] += 1
+
+    # Map back to main dataframe
+    stability_map = dict(
+        zip(emp_stats['NAME_INCOME_TYPE'], emp_stats['EMP_STABILITY_SCORE'])
+    )
+
+    df_copy['EMP_STABILITY_SCORE'] = (
+        df_copy['NAME_INCOME_TYPE']
+        .map(stability_map)
+        .fillna(0)
+    )
+
+    
+    df_copy['SOCIO_ECON_SCORE'] = (
+        df_copy['EDU_SCORE'] + df_copy['EMP_STABILITY_SCORE']
+    )
+
+   
+    stats = df_copy.groupby('SOCIO_ECON_SCORE').agg(
+        avg_credit_income=('CREDIT_INCOME_RATIO', 'mean'),
+        default_rate=('TARGET', 'mean'),
+        total=('TARGET', 'count')
+    ).reset_index()
+
+    fig = px.scatter(
+        stats,
+        x='avg_credit_income',
+        y='default_rate',
+        size='total',
+        color='SOCIO_ECON_SCORE',
+        color_continuous_scale='Viridis',
+        title='Socio-Economic Stability vs Credit Risk',
+        labels={
+            'avg_credit_income': 'Avg Credit / Income Ratio',
+            'default_rate': 'Default Rate',
+            'SOCIO_ECON_SCORE': 'Socio-Economic Stability Score'
+        }
+    )
+
+    fig.update_layout(
+        height=520,
+        template='plotly_white'
+    )
+
+    return fig
+
+
+@st.cache_resource(show_spinner=False)
+def create_living_standard_analysis(df):
+    """
+    Living standards (housing + car ownership) vs credit/income & default rate
+    """
+    required_cols = [
+        'FLAG_OWN_REALTY',
+        'FLAG_OWN_CAR',
+        'CREDIT_INCOME_RATIO',
+        'TARGET'
+    ]
+    
+    if not all(col in df.columns for col in required_cols):
+        return go.Figure()
+
+    df_copy = df.copy()
+
+    # Feature engineering: Living Standard Score
+    df_copy['LIVING_STANDARD_SCORE'] = (
+        (df_copy['FLAG_OWN_REALTY'] == 'Y').astype(int) +
+        (df_copy['FLAG_OWN_CAR'] == 'Y').astype(int)
+    )
+
+    df_copy['LIVING_STANDARD_LABEL'] = df_copy['LIVING_STANDARD_SCORE'].map({
+        0: 'No House & No Car',
+        1: 'Either House or Car',
+        2: 'House & Car'
+    })
+
+    stats = df_copy.groupby('LIVING_STANDARD_LABEL').agg(
+        avg_credit_income=('CREDIT_INCOME_RATIO', 'mean'),
+        default_rate=('TARGET', 'mean'),
+        total=('TARGET', 'count')
+    ).reset_index()
+
+    fig = make_subplots(
+        rows=1, cols=2,
+        subplot_titles=(
+            'Default Rate by Living Standard',
+            'Avg Credit/Income Ratio by Living Standard'
+        )
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=stats['LIVING_STANDARD_LABEL'],
+            y=stats['default_rate'],
+            text=[f"{x:.1%}" for x in stats['default_rate']],
+            textposition='auto',
+            marker_color='#EF4444'
+        ),
+        row=1, col=1
+    )
+
+    fig.add_trace(
+        go.Bar(
+            x=stats['LIVING_STANDARD_LABEL'],
+            y=stats['avg_credit_income'],
+            text=[f"{x:.2f}" for x in stats['avg_credit_income']],
+            textposition='auto',
+            marker_color='#3B82F6'
+        ),
+        row=1, col=2
+    )
+
+    fig.update_layout(
+        height=450,
+        showlegend=False,
+        template='plotly_white'
+    )
+
+    fig.update_yaxes(title_text="Default Rate", row=1, col=1)
+    fig.update_yaxes(title_text="Credit / Income Ratio", row=1, col=2)
+
+    return fig
+
+@st.cache_resource(show_spinner=False)
+def create_employment_tenure_occupation_analysis(df):
+    """
+    Enhanced: Employment tenure x occupation vs default rate & income
+    Occupations selected based on volume + default risk relevance
+    """
+    required_cols = [
+        'DAYS_EMPLOYED',
+        'OCCUPATION_TYPE',
+        'AMT_INCOME_TOTAL',
+        'TARGET'
+    ]
+    
+    if not all(col in df.columns for col in required_cols):
+        return go.Figure()
+
+    df_copy = df.copy()
+
+    # --------------------------------------------------
+    # 1. Clean & engineer tenure
+    # --------------------------------------------------
+    df_copy = df_copy[df_copy['DAYS_EMPLOYED'] < 0]
+    df_copy['EMP_TENURE_YEARS'] = (-df_copy['DAYS_EMPLOYED']) / 365
+
+    df_copy['TENURE_BIN'] = pd.cut(
+        df_copy['EMP_TENURE_YEARS'],
+        bins=[0, 1, 3, 5, 10, 40],
+        labels=['<1 yr', '1–3 yrs', '3–5 yrs', '5–10 yrs', '10+ yrs']
+    )
+
+    # --------------------------------------------------
+    # 2. Occupation risk profiling (reused logic)
+    # --------------------------------------------------
+    occ_stats = df_copy.groupby('OCCUPATION_TYPE').agg(
+        total=('TARGET', 'count'),
+        default_rate=('TARGET', 'mean')
+    ).reset_index()
+
+    # Keep occupations with enough signal
+    occ_stats = occ_stats[occ_stats['total'] > 500]
+
+    # Select top occupations by risk relevance
+    top_occ = (
+        occ_stats
+        .sort_values(['default_rate', 'total'], ascending=[False, False])
+        .head(8)['OCCUPATION_TYPE']
+    )
+
+    df_copy = df_copy[df_copy['OCCUPATION_TYPE'].isin(top_occ)]
+
+    # --------------------------------------------------
+    # 3. Tenure × occupation aggregation
+    # --------------------------------------------------
+    stats = df_copy.groupby(['TENURE_BIN', 'OCCUPATION_TYPE']).agg(
+        default_rate=('TARGET', 'mean'),
+        avg_income=('AMT_INCOME_TOTAL', 'mean'),
+        total=('TARGET', 'count')
+    ).reset_index()
+
+    # --------------------------------------------------
+    # 4. Visualization
+    # --------------------------------------------------
+    fig = px.scatter(
+        stats,
+        x='avg_income',
+        y='default_rate',
+        size='total',
+        color='TENURE_BIN',
+        facet_col='OCCUPATION_TYPE',
+        facet_col_wrap=4,
+        title='Employment Tenure × Occupation: How Stability Modifies Risk',
+        labels={
+            'avg_income': 'Average Income',
+            'default_rate': 'Default Rate',
+            'TENURE_BIN': 'Employment Tenure'
+        }
+    )
+
+    fig.update_layout(
+        height=750,
+        template='plotly_white'
+    )
+
+    fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
+
+    return fig
